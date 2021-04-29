@@ -1,0 +1,12 @@
+
+config neteasemusicunblock
+	option enable '0'
+	option http_port '5200'
+	option https_port '5433'
+	option music_source 'default'
+	option hijack_ways 'dont_hijack'
+	option daemon_enable '0'
+	option search_limit '0'
+	option endpoint_enable '0'
+	option force_best_quality '0'
+	option auto_update '0'

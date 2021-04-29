@@ -1,0 +1,17 @@
+#!/bin/sh
+
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@neteasemusicunblock[-1]
+	add ucitrack neteasemusicunblock
+	set ucitrack.@neteasemusicunblock[-1].init=neteasemusicunblock
+	commit ucitrack
+	delete firewall.neteasemusicunblock
+	set firewall.neteasemusicunblock=include
+	set firewall.neteasemusicunblock.type=script
+	set firewall.neteasemusicunblock.path=/var/etc/neteasemusicunblock.include
+	set firewall.neteasemusicunblock.reload=1
+	commit firewall
+EOF
+
+rm -f /tmp/luci-indexcache
+exit 0

@@ -1,0 +1,185 @@
+#!/bin/sh /etc/rc.common
+
+START=96
+STOP=10
+
+PROG=/usr/bin/NeteaseMusicUnblockGo
+
+lan_addr="$(uci get network.lan.ipaddr)"
+
+enable="$(uci get neteasemusicunblock.@neteasemusicunblock[0].enable)"
+http_port="$(uci get neteasemusicunblock.@neteasemusicunblock[0].http_port)"
+https_port="$(uci get neteasemusicunblock.@neteasemusicunblock[0].https_port)"
+music_source="$(uci get neteasemusicunblock.@neteasemusicunblock[0].music_source)"
+music_customize_source="$(uci get neteasemusicunblock.@neteasemusicunblock[0].music_customize_source)"
+hijack_ways="$(uci get neteasemusicunblock.@neteasemusicunblock[0].hijack_ways)"
+endpoint="$(uci get neteasemusicunblock.@neteasemusicunblock[0].endpoint_enable)"
+force_best_quality="$(uci get neteasemusicunblock.@neteasemusicunblock[0].force_best_quality)"
+search_limit="$(uci get neteasemusicunblock.@neteasemusicunblock[0].search_limit)"
+auto_update="$(uci get neteasemusicunblock.@neteasemusicunblock[0].auto_update)"
+extFile="/usr/share/neteasemusicunblock/extFile.txt"
+serverCrt="/usr/share/neteasemusicunblock/server.crt"
+serverKey="/usr/share/neteasemusicunblock/server.key"
+serverCsr="/usr/share/neteasemusicunblock/server.csr"
+caCrt="/usr/share/neteasemusicunblock/ca.crt"
+caKey="/usr/share/neteasemusicunblock/ca.key"
+logFile="/tmp/neteasemusicunblock.log"
+exArgs=" "
+set_ipset() {
+	if [ "${set_type}" = "start" ]; then
+		mkdir -p "/tmp/dnsmasq.d"
+		rm -f "/tmp/dnsmasq.d/dnsmasq-neteasemusicunblock.conf"
+		cat <<-EOF >"/tmp/dnsmasq.d/dnsmasq-neteasemusicunblock.conf"
+			ipset=/.music.163.com/neteasemusicunblock
+			ipset=/interface.music.163.com/neteasemusicunblock
+			ipset=/interface3.music.163.com/neteasemusicunblock
+			ipset=/apm.music.163.com/neteasemusicunblock
+			ipset=/apm3.music.163.com/neteasemusicunblock
+		EOF
+		/etc/init.d/dnsmasq reload >"/dev/null" 2>&1
+		if ! ipset list neteasemusicunblock >"/dev/null"; then ipset create neteasemusicunblock list:set; fi
+
+		if ! ipset list neteasemusicunblock4 >"/dev/null"; then ipset create neteasemusicunblock4 hash:ip family inet; fi
+		curl -s "http://httpdns.n.netease.com/httpdns/v2/d?domain=music.163.com,interface.music.163.com,interface3.music.163.com,apm.music.163.com,apm3.music.163.com,clientlog.music.163.com,clientlog3.music.163.com" | grep -Eo '[0-9]+?\.[0-9]+?\.[0-9]+?\.[0-9]+?' | sort | uniq | awk '{print "ipset add neteasemusicunblock4 "$1}' | bash >"/dev/null" 2>&1
+		ipset add neteasemusicunblock neteasemusicunblock4
+		iptables -t nat -N cloud_neteasemusicunblock
+		iptables -t nat -A cloud_neteasemusicunblock -d 0.0.0.0/8 -j RETURN
+		iptables -t nat -A cloud_neteasemusicunblock -d 10.0.0.0/8 -j RETURN
+		iptables -t nat -A cloud_neteasemusicunblock -d 127.0.0.0/8 -j RETURN
+		iptables -t nat -A cloud_neteasemusicunblock -d 169.254.0.0/16 -j RETURN
+		iptables -t nat -A cloud_neteasemusicunblock -d 172.16.0.0/12 -j RETURN
+		iptables -t nat -A cloud_neteasemusicunblock -d 192.168.0.0/16 -j RETURN
+		iptables -t nat -A cloud_neteasemusicunblock -d 224.0.0.0/4 -j RETURN
+		iptables -t nat -A cloud_neteasemusicunblock -d 240.0.0.0/4 -j RETURN
+		iptables -t nat -A cloud_neteasemusicunblock -p tcp --dport 80 -j REDIRECT --to-ports "${http_port}"
+		iptables -t nat -A cloud_neteasemusicunblock -p tcp --dport 443 -j REDIRECT --to-ports "${https_port}"
+		iptables -t nat -I PREROUTING -p tcp -m set --match-set neteasemusicunblock dst -j cloud_neteasemusicunblock
+		ip6tables -h
+		if [ $? -eq 0 ]; then
+			# ipv6
+			if ! ipset list neteasemusicunblock6 >"/dev/null"; then ipset create neteasemusicunblock6 hash:ip family inet6; fi
+			domains="music.163.com"
+			for domain in $domains; do
+				ip=$(ping6 ${domain} -c 1 | sed '1{s/[^(]*(//;s/).*//;q}')
+				if [ -n "$ip" ]; then 
+				 ipset add neteasemusicunblock6 $ip
+				else
+				 echo "ping6 bad address,please check IPv6 DNS forwards.if IPv6 DNS forwards is enabled, please restart" >>"${logFile}"
+				fi
+			done
+			ipset add neteasemusicunblock neteasemusicunblock6
+			ip6tables -t nat -N cloud_neteasemusicunblock
+			ip6tables -t nat -A cloud_neteasemusicunblock -d ::/8 -j RETURN
+			ip6tables -t nat -A cloud_neteasemusicunblock -d FE80::/10 -j RETURN
+			ip6tables -t nat -A cloud_neteasemusicunblock -d FC00::/7 -j RETURN
+			ip6tables -t nat -A cloud_neteasemusicunblock -d FEC0::/10 -j RETURN
+			ip6tables -t nat -A cloud_neteasemusicunblock -p tcp --dport 80 -j REDIRECT --to-ports "${http_port}"
+			ip6tables -t nat -A cloud_neteasemusicunblock -p tcp --dport 443 -j REDIRECT --to-ports "${https_port}"
+			ip6tables -t nat -I PREROUTING -p tcp -m set --match-set neteasemusicunblock dst -j cloud_neteasemusicunblock
+		else
+			echo "ip6tables is not supported" >>"${logFile}"
+		fi
+		mkdir -p /var/etc
+		cat <<-EOF >>"/var/etc/neteasemusicunblock.include"
+			/etc/init.d/neteasemusicunblock restart
+		EOF
+	elif [ "${set_type}" = "stop" ]; then
+		iptables -t nat -D PREROUTING -p tcp -m set --match-set neteasemusicunblock dst -j cloud_neteasemusicunblock
+		iptables -t nat -F cloud_neteasemusicunblock
+		iptables -t nat -X cloud_neteasemusicunblock
+		ipset destroy neteasemusicunblock
+		ipset destroy neteasemusicunblock4
+		ip6tables -h
+		if [ $? -eq 0 ]; then
+			ip6tables -t nat -D PREROUTING -p tcp -m set --match-set neteasemusicunblock dst -j cloud_neteasemusicunblock
+			ip6tables -t nat -F cloud_neteasemusicunblock
+			ip6tables -t nat -X cloud_neteasemusicunblock
+			ipset destroy neteasemusicunblock6
+		fi
+		echo "" >"/var/etc/neteasemusicunblock.include"
+		rm -f "/tmp/dnsmasq.d/dnsmasq-neteasemusicunblock.conf"
+		/etc/init.d/dnsmasq reload >"/dev/null" 2>&1
+	fi
+}
+
+set_hosts() {
+	if [ "${set_type}" = "start" ]; then
+		mkdir -p "/tmp/dnsmasq.d"
+		rm -f "/tmp/dnsmasq.d/dnsmasq-neteasemusicunblock.conf"
+		cat <<-EOF >"/tmp/dnsmasq.d/dnsmasq-neteasemusicunblock.conf"
+			address=/music.163.com/${lan_addr}
+			address=/interface.music.163.com/${lan_addr}
+			address=/interface3.music.163.com/${lan_addr}
+			address=/apm.music.163.com/${lan_addr}
+			address=/apm3.music.163.com/${lan_addr}
+			address=/music.httpdns.c.163.com/0.0.0.0
+		EOF
+		/etc/init.d/dnsmasq reload >"/dev/null" 2>&1
+		# ip route add 223.252.199.10 dev lo
+	elif [ "${set_type}" = "stop" ]; then
+		rm -f "/tmp/dnsmasq.d/dnsmasq-neteasemusicunblock.conf"
+		/etc/init.d/dnsmasq reload >"/dev/null" 2>&1
+		# ip route del 223.252.199.10
+	fi
+}
+createCertificate() {
+	echo "create certificate..." >>"${logFile}"
+	openssl genrsa -out "${caKey}" 2048
+	openssl req -x509 -new -nodes -key "${caKey}" -sha256 -days 825 -out "${caCrt}" -subj "/C=CN/CN=neteasemusicunblock Root CA/O=neteasemusicunblock"
+	openssl genrsa -out "${serverKey}" 2048
+	openssl req -new -sha256 -key "${serverKey}" -out "${serverCsr}" -subj "/C=CN/L=Hangzhou/O=NetEase (Hangzhou) Network Co., Ltd/OU=IT Dept./CN=*.music.163.com"
+	touch "${extFile}"
+	echo "authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage=serverAuth,OCSPSigning
+subjectAltName=DNS:music.163.com,DNS:*.music.163.com" >"${extFile}"
+	openssl x509 -req -extfile "${extFile}" -days 825 -in "${serverCsr}" -CA "${caCrt}" -CAkey "${caKey}" -CAcreateserial -out "${serverCrt}"
+	rm -f "${extFile}"
+}
+start() {
+	stop >>"${logFile}" 2>&1
+	[ "${enable}" -ne "1" ] && exit 0
+	ping -c 1 114.114.114.114 >/dev/null 2>&1
+	if [ $? -eq 0 ]; then
+		if [ ! -f "$serverCrt" ]; then
+			createCertificate >>"${logFile}" 2>&1
+		fi
+		if [ "${endpoint}" = "1" ]; then
+			exArgs="-e"
+		fi
+		if [ "${force_best_quality}" = "1" ]; then
+			exArgs="${exArgs} -b"
+		fi
+		if [ "${music_source}" = "default" ]; then
+			nohup neteasemusicunblock -p "${http_port}" -sp "${https_port}" -o kuwo -m 0 -c "${serverCrt}" -k "${serverKey}" -l "${logFile}" -sl "${search_limit}" ${exArgs} >>"${logFile}" 2>&1 &
+		else
+			nohup neteasemusicunblock -p "${http_port}" -sp "${https_port}" -o "${music_customize_source}" -m 0 -c "${serverCrt}" -k "${serverKey}" -l "${logFile}" -sl "${search_limit}" ${exArgs} >>"${logFile}" 2>&1 &
+		fi
+		set_type="start"
+		if [ "${hijack_ways}" = "use_ipset" ]; then
+			set_ipset >"/dev/null" 2>&1
+		elif [ "${hijack_ways}" = "use_hosts" ]; then
+			set_hosts >"/dev/null" 2>&1
+		fi
+	else
+		echo "$(date -R) network connection error" >>"${logFile}"
+	fi
+	sed -i '/neteasemusicunblock/d' /etc/crontabs/root
+	echo "*/1 * * * * /usr/share/neteasemusicunblock/log_check.sh" >>"/etc/crontabs/root"
+	echo "0 5 * * * /usr/share/neteasemusicunblock/version_check.sh" >>"/etc/crontabs/root"
+	/etc/init.d/cron restart >"/dev/null" 2>&1
+}
+
+stop() {
+	killall -9 "neteasemusicunblock" >"/dev/null" 2>&1
+
+	sed -i '/neteasemusicunblock/d' "/etc/crontabs/root"
+	/etc/init.d/cron restart >"/dev/null" 2>&1
+
+	# rm -f "${logFile}"
+
+	set_type="stop"
+	set_ipset >"/dev/null" 2>&1
+	set_hosts >"/dev/null" 2>&1
+}
