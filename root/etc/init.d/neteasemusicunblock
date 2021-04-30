@@ -1,5 +1,8 @@
 #!/bin/sh /etc/rc.common
 
+. /lib/functions.sh
+. /usr/share/libubox/jshn.sh
+
 START=96
 STOP=10
 
@@ -187,7 +190,7 @@ stop() {
 	sed -i '/neteasemusicunblock/d' "/etc/crontabs/root"
 	/etc/init.d/cron restart >"/dev/null" 2>&1
 
-	# rm -f "${logFile}"
+	rm -f "${logFile}"
 
 	set_type="stop"
 	set_ipset >"/dev/null" 2>&1
