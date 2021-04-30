@@ -2,7 +2,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI support for neteasemusicunblock
-LUCI_DEPENDS:= +dnsmasq-full +ipset +luci-compat +NeteaseMusicUnblockGo
+LUCI_DEPENDS:= +luci-compat +NeteaseMusicUnblockGo
 LUCI_PKGARCH:=all
 PKG_NAME:=luci-app-neteasemusicunblock
 PKG_VERSION:=1.14
