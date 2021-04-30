@@ -3,7 +3,8 @@
 START=96
 STOP=10
 
-PROG=/usr/bin/NeteaseMusicUnblockGo
+PROGNAME=NeteaseMusicUnblockGo
+PROG=/usr/bin/$PROGNAME
 
 lan_addr="$(uci get network.lan.ipaddr)"
 
@@ -152,11 +153,20 @@ start() {
 			exArgs="${exArgs} -b"
 		fi
 		if [ "${music_source}" = "default" ]; then
-			nohup neteasemusicunblock -p "${http_port}" -sp "${https_port}" -o kuwo -m 0 -c "${serverCrt}" -k "${serverKey}" -l "${logFile}" -sl "${search_limit}" ${exArgs} >>"${logFile}" 2>&1 &
-		else
-			nohup neteasemusicunblock -p "${http_port}" -sp "${https_port}" -o "${music_customize_source}" -m 0 -c "${serverCrt}" -k "${serverKey}" -l "${logFile}" -sl "${search_limit}" ${exArgs} >>"${logFile}" 2>&1 &
+			music_customize_source=kuwo
 		fi
+
 		set_type="start"
+
+        procd_open_instance
+        procd_set_param command $PROG -p "${http_port}" -sp "${https_port}" -o "${music_customize_source}" -m 0 -c "${serverCrt}" -k "${serverKey}" -l "${logFile}" -sl "${search_limit}" ${exArgs} >>"${logFile}" 2>&1 &
+        procd_set_param user root # run service as user root
+        procd_set_param stdout 1 # forward stdout of the command to logd
+        procd_set_param stderr 1 # same for stderr
+        procd_set_param limits nofile="1048576 1048576" # max allowed value can be fetched via /proc/sys/fs/nr_open
+        procd_close_instance
+
+
 		if [ "${hijack_ways}" = "use_ipset" ]; then
 			set_ipset >"/dev/null" 2>&1
 		elif [ "${hijack_ways}" = "use_hosts" ]; then
@@ -167,12 +177,12 @@ start() {
 	fi
 	sed -i '/neteasemusicunblock/d' /etc/crontabs/root
 	echo "*/1 * * * * /usr/share/neteasemusicunblock/log_check.sh" >>"/etc/crontabs/root"
-	echo "0 5 * * * /usr/share/neteasemusicunblock/version_check.sh" >>"/etc/crontabs/root"
+	#echo "0 5 * * * /usr/share/neteasemusicunblock/version_check.sh" >>"/etc/crontabs/root"
 	/etc/init.d/cron restart >"/dev/null" 2>&1
 }
 
 stop() {
-	killall -9 "neteasemusicunblock" >"/dev/null" 2>&1
+	killall -9 "$PROGNAME" >"/dev/null" 2>&1
 
 	sed -i '/neteasemusicunblock/d' "/etc/crontabs/root"
 	/etc/init.d/cron restart >"/dev/null" 2>&1
